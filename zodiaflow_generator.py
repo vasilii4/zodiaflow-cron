@@ -1,54 +1,53 @@
-import openai
 import os
-from pymongo import MongoClient
+import openai
 from datetime import datetime
-from dotenv import load_dotenv
+from pymongo import MongoClient
 
-load_dotenv()
+# 👉 Настройки DeepSeek
+openai.api_key = "sk-c20c23ea404d4bc2b6d4ca83d756b354"  # 🔐 Твой API ключ
+openai.api_base = "https://api.deepseek.com/v1"
 
-# Получение API ключа и строки подключения к БД из переменных окружения
-openai.api_key = os.getenv("OPENAI_API_KEY")
-mongo_uri = os.getenv("MONGODB_URI")
-
-client = MongoClient(mongo_uri)
+# 👉 Настройки MongoDB
+MONGODB_URI = os.getenv("MONGODB_URI")  # обязательно задать в Render
+client = MongoClient(MONGODB_URI)
 db = client["zodiaflow"]
 collection = db["daily_horoscopes"]
 
-signs = [
+# 👉 Список знаков зодиака
+zodiac_signs = [
     "aries", "taurus", "gemini", "cancer", "leo", "virgo",
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"
 ]
 
-today = datetime.utcnow().strftime("%Y-%m-%d")
+# 👉 Дата для прогноза (на сегодня)
+today = datetime.now().strftime("%Y-%m-%d")
 
 def generate_horoscope(sign):
-    prompt = f"Write a short, original daily horoscope for the zodiac sign {sign.title()} for {today}. No intro or sign name, just the prediction."
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.7,
-        )
-        return response["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"Error generating for {sign}: {e}")
-        return None
+        print(f"Generating for {sign}...")
 
-for sign in signs:
-    print(f"🔮 Generating for {sign}...")
-    horoscope = generate_horoscope(sign)
-    if horoscope:
-        document = {
-            "sign": sign,
-            "date": today,
-            "horoscope": horoscope
-        }
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "Ты профессиональный астролог. Генерируй креативные и вдохновляющие гороскопы."},
+                {"role": "user", "content": f"Сгенерируй гороскоп для знака {sign} на {today}, 3 абзаца."}
+            ],
+            temperature=0.9
+        )
+
+        horoscope = response.choices[0].message["content"]
+
+        # 👉 Сохраняем в MongoDB
         collection.update_one(
             {"sign": sign, "date": today},
-            {"$set": document},
+            {"$set": {"text": horoscope}},
             upsert=True
         )
-        print(f"✅ Saved for {sign}")
-    else:
-        print(f"❌ Skipped {sign}")
+
+        print(f"Saved {sign}")
+    except Exception as e:
+        print(f"❌ Error generating for {sign}: {e}")
+
+if __name__ == "__main__":
+    for sign in zodiac_signs:
+        generate_horoscope(sign)
