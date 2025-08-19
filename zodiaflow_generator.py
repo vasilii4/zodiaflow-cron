@@ -1,53 +1,61 @@
 import os
-import openai
-from datetime import datetime
+import requests
 from pymongo import MongoClient
+from datetime import datetime
 
-# 👉 Настройки DeepSeek
-openai.api_key = "sk-c20c23ea404d4bc2b6d4ca83d756b354"  # 🔐 Твой API ключ
-openai.api_base = "https://api.deepseek.com/v1"
+# Получаем ключ DeepSeek из переменных окружения
+DEEPSEEK_API_KEY = os.getenv("DeepSeek_API_KEY")
+MONGODB_URI = os.getenv("MONGODB_URI")
 
-# 👉 Настройки MongoDB
-MONGODB_URI = os.getenv("MONGODB_URI")  # обязательно задать в Render
-client = MongoClient(MONGODB_URI)
-db = client["zodiaflow"]
-collection = db["daily_horoscopes"]
-
-# 👉 Список знаков зодиака
-zodiac_signs = [
+# Список знаков зодиака
+ZODIAC_SIGNS = [
     "aries", "taurus", "gemini", "cancer", "leo", "virgo",
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"
 ]
 
-# 👉 Дата для прогноза (на сегодня)
-today = datetime.now().strftime("%Y-%m-%d")
+# Подключаемся к MongoDB
+client = MongoClient(MONGODB_URI)
+db = client["zodiaflow"]
+collection = db["daily_horoscopes"]
 
 def generate_horoscope(sign):
-    try:
-        print(f"Generating for {sign}...")
+    """Отправка запроса к DeepSeek API"""
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    prompt = f"Напиши короткий, вдохновляющий гороскоп на сегодня для знака зодиака {sign}, без указания даты."
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Ты астролог. Генерируй качественные гороскопы на русском языке."},
+            {"role": "user", "content": prompt}
+        ]
+    }
 
-        response = openai.ChatCompletion.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "Ты профессиональный астролог. Генерируй креативные и вдохновляющие гороскопы."},
-                {"role": "user", "content": f"Сгенерируй гороскоп для знака {sign} на {today}, 3 абзаца."}
-            ],
-            temperature=0.9
-        )
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()['choices'][0]['message']['content']
 
-        horoscope = response.choices[0].message["content"]
+def store_horoscope(sign, content):
+    """Сохраняет гороскоп в базу данных"""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    collection.update_one(
+        {"sign": sign, "date": today},
+        {"$set": {"content": content}},
+        upsert=True
+    )
 
-        # 👉 Сохраняем в MongoDB
-        collection.update_one(
-            {"sign": sign, "date": today},
-            {"$set": {"text": horoscope}},
-            upsert=True
-        )
-
-        print(f"Saved {sign}")
-    except Exception as e:
-        print(f"❌ Error generating for {sign}: {e}")
+def main():
+    for sign in ZODIAC_SIGNS:
+        try:
+            print(f"Generating for {sign}...")
+            horoscope = generate_horoscope(sign)
+            store_horoscope(sign, horoscope)
+            print(f"Saved {sign} ✅")
+        except Exception as e:
+            print(f"❌ Error generating for {sign}: {e}")
 
 if __name__ == "__main__":
-    for sign in zodiac_signs:
-        generate_horoscope(sign)
+    main()
