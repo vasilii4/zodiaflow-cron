@@ -1,65 +1,54 @@
-import os
-import datetime
 import openai
-from openai import OpenAI
+import os
 from pymongo import MongoClient
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Настройка OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Настройка MongoDB
+# Получение API ключа и строки подключения к БД из переменных окружения
+openai.api_key = os.getenv("OPENAI_API_KEY")
 mongo_uri = os.getenv("MONGODB_URI")
-mongo_client = MongoClient(mongo_uri)
-db = mongo_client["zodiaflow"]
+
+client = MongoClient(mongo_uri)
+db = client["zodiaflow"]
 collection = db["daily_horoscopes"]
 
-# Список знаков зодиака
-zodiac_signs = [
+signs = [
     "aries", "taurus", "gemini", "cancer", "leo", "virgo",
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"
 ]
 
-# Шаблон запроса к GPT
-def generate_horoscope(sign: str, date: str):
-    prompt = f"""
-    Составь краткий, вдохновляющий и правдоподобный гороскоп для знака {sign.capitalize()} на дату {date}.
-    Не используй банальности. Стиль — легкий, но уверенный. Максимум 60 слов. Без вступлений и без заключений.
-    """
+today = datetime.utcnow().strftime("%Y-%m-%d")
 
+def generate_horoscope(sign):
+    prompt = f"Write a short, original daily horoscope for the zodiac sign {sign.title()} for {today}. No intro or sign name, just the prediction."
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Ты профессиональный астролог, который пишет уникальные гороскопы."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.8
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.7,
         )
-        return response.choices[0].message.content.strip()
+        return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        print(f"[ERROR] Ошибка при генерации для {sign}: {e}")
+        print(f"Error generating for {sign}: {e}")
         return None
 
-# Основной запуск
-def main():
-    today = datetime.date.today().isoformat()
-    for sign in zodiac_signs:
-        print(f"⏳ Генерация гороскопа для: {sign} ({today})")
-        horoscope = generate_horoscope(sign, today)
-
-        if horoscope:
-            # Сохраняем в MongoDB
-            collection.update_one(
-                {"sign": sign, "date": today},
-                {"$set": {"sign": sign, "date": today, "text": horoscope}},
-                upsert=True
-            )
-            print(f"✅ Успешно сохранён гороскоп для {sign}")
-        else:
-            print(f"❌ Пропущен {sign} из-за ошибки.")
-
-if __name__ == "__main__":
-    main()
+for sign in signs:
+    print(f"🔮 Generating for {sign}...")
+    horoscope = generate_horoscope(sign)
+    if horoscope:
+        document = {
+            "sign": sign,
+            "date": today,
+            "horoscope": horoscope
+        }
+        collection.update_one(
+            {"sign": sign, "date": today},
+            {"$set": document},
+            upsert=True
+        )
+        print(f"✅ Saved for {sign}")
+    else:
+        print(f"❌ Skipped {sign}")
