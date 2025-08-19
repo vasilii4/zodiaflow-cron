@@ -1,114 +1,65 @@
-import openai
 import os
-import time
-from datetime import datetime
+import datetime
+import openai
+from openai import OpenAI
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Загрузка переменных окружения
 load_dotenv()
-MONGO_URI = os.getenv("MONGO_URI")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-openai.api_key = OPENAI_API_KEY
+# Настройка OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-ZODIAC_SIGNS = [
+# Настройка MongoDB
+mongo_uri = os.getenv("MONGODB_URI")
+mongo_client = MongoClient(mongo_uri)
+db = mongo_client["zodiaflow"]
+collection = db["daily_horoscopes"]
+
+# Список знаков зодиака
+zodiac_signs = [
     "aries", "taurus", "gemini", "cancer", "leo", "virgo",
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"
 ]
 
-TARGET_LANGUAGES = ["ru", "es", "pt", "fr", "de", "it", "ar", "hi", "zh"]
+# Шаблон запроса к GPT
+def generate_horoscope(sign: str, date: str):
+    prompt = f"""
+    Составь краткий, вдохновляющий и правдоподобный гороскоп для знака {sign.capitalize()} на дату {date}.
+    Не используй банальности. Стиль — легкий, но уверенный. Максимум 60 слов. Без вступлений и без заключений.
+    """
 
-today = datetime.utcnow().strftime("%Y-%m-%d")
-
-def generate_prompt(sign, date):
-    return f"""
-You are the head astrologer at ZodiaFlow, a global astrology platform.
-
-Your job is to generate an insightful, emotional, and inspiring DAILY horoscope for the zodiac sign: {sign}, for the date: {date}.
-
-📌 Write 4 short paragraphs (around 600–700 words total).
-📌 The tone must be warm, a little mystical, uplifting, and intuitive — not cold or mechanical.
-📌 Use metaphors, feeling-based language, and offer gentle but clear insight.
-
-Each horoscope should include:
-1. Emotional theme of the day.
-2. Energy level and mental focus.
-3. Key areas of life affected (love, communication, finance).
-4. One spiritual lesson or advice to reflect on.
-5. A closing sentence that gives empowerment or encouragement.
-
-Do not use astrological jargon. Describe how it feels.
-Language: English.
-"""
-
-def translate_prompt(text, lang_code):
-    return f"""
-Translate the following horoscope text into {lang_code}.
-Keep the tone, poetic structure, and feeling. Do not translate literally — translate expressively.
-
-Text:
-{text}
-"""
-
-def main():
-    client = MongoClient(MONGO_URI)
-    db = client["zodiaflow"]
-    collection = db["predictions"]
-
-    for sign in ZODIAC_SIGNS:
-        print(f"🔮 Generating: {sign}")
-        prompt = generate_prompt(sign, today)
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.9
-            )
-            base_text = response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"❌ Error generating for {sign}: {e}")
-            continue
-
-        collection.update_one(
-            {"sign": sign, "lang": "en", "type": "daily", "date": today},
-            {"$set": {
-                "sign": sign,
-                "lang": "en",
-                "type": "daily",
-                "date": today,
-                "text": base_text
-            }},
-            upsert=True
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Ты профессиональный астролог, который пишет уникальные гороскопы."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.8
         )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[ERROR] Ошибка при генерации для {sign}: {e}")
+        return None
 
-        for lang in TARGET_LANGUAGES:
-            try:
-                tr_prompt = translate_prompt(base_text, lang)
-                tr_response = openai.ChatCompletion.create(
-                    model="gpt-4",
-                    messages=[{"role": "user", "content": tr_prompt}],
-                    temperature=0.7
-                )
-                translated_text = tr_response.choices[0].message.content.strip()
+# Основной запуск
+def main():
+    today = datetime.date.today().isoformat()
+    for sign in zodiac_signs:
+        print(f"⏳ Генерация гороскопа для: {sign} ({today})")
+        horoscope = generate_horoscope(sign, today)
 
-                collection.update_one(
-                    {"sign": sign, "lang": lang, "type": "daily", "date": today},
-                    {"$set": {
-                        "sign": sign,
-                        "lang": lang,
-                        "type": "daily",
-                        "date": today,
-                        "text": translated_text
-                    }},
-                    upsert=True
-                )
-                print(f"✅ {sign} → {lang}")
-            except Exception as e:
-                print(f"❌ Translation error {sign} → {lang}: {e}")
-                continue
-
-        time.sleep(2)
+        if horoscope:
+            # Сохраняем в MongoDB
+            collection.update_one(
+                {"sign": sign, "date": today},
+                {"$set": {"sign": sign, "date": today, "text": horoscope}},
+                upsert=True
+            )
+            print(f"✅ Успешно сохранён гороскоп для {sign}")
+        else:
+            print(f"❌ Пропущен {sign} из-за ошибки.")
 
 if __name__ == "__main__":
     main()
