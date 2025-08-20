@@ -1,3 +1,4 @@
-requests
-pymongo
+pymongo[srv]==4.6.3
+dnspython>=2.0.0
 python-dotenv
+requests
