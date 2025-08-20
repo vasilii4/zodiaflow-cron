@@ -4,27 +4,16 @@ from pymongo import MongoClient
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Загрузим .env, если запускаешь локально
+# Загрузим переменные окружения из .env (локально)
 load_dotenv()
 
-# MongoDB URI (не SRV, обычный формат)
-mongo_uri = "mongodb://vas4ek:ZodiaNew123@zodiaflow-cluster.laohqcs.mongodb.net:27017/?retryWrites=true&w=majority"
-
 # Подключение к MongoDB
+mongo_uri = os.getenv("MONGODB_URI")
 client = MongoClient(mongo_uri)
-
-# Проверка подключения
-try:
-    client.admin.command('ping')
-    print("✅ Successfully connected to MongoDB")
-except Exception as e:
-    print("❌ MongoDB connection failed:", e)
-
-# Доступ к базе и коллекции
 db = client["zodiaflow"]
 collection = db["daily_horoscopes"]
 
-# Ключ DeepSeek из переменных окружения
+# Ключ DeepSeek API
 DEEPSEEK_API_KEY = os.getenv("DeepSeek_API_KEY")
 
 # Список знаков зодиака
@@ -33,7 +22,6 @@ ZODIAC_SIGNS = [
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"
 ]
 
-# Генерация гороскопа через DeepSeek
 def generate_horoscope(sign):
     url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
@@ -54,7 +42,6 @@ def generate_horoscope(sign):
     result = response.json()
     return result["choices"][0]["message"]["content"].strip()
 
-# Сохранение в MongoDB
 def save_to_mongo(sign, content):
     today = datetime.now().strftime("%Y-%m-%d")
     collection.update_one(
@@ -63,7 +50,6 @@ def save_to_mongo(sign, content):
         upsert=True
     )
 
-# Основной процесс
 def main():
     for sign in ZODIAC_SIGNS:
         try:
