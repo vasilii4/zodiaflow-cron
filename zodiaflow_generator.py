@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Подключение к MongoDB
-mongo_uri = os.getenv("mongodb+srv://vas4ek:zodia@zodiaflow-cluster.1aohqcs.mongodb.net/?retryWrites=true&w=majority&appName=zodiaflow-cluster")
+mongo_uri = os.getenv("MONGODB_URI")
 client = MongoClient(mongo_uri)
 db = client["zodiaflow"]
 collection = db["daily_horoscopes"]
